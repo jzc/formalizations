@@ -12,21 +12,18 @@ Require Import Bool.
 Inductive prop : Set :=
 | Bot
 | Var (x : nat)
-| Not (p : prop)
 | And (p1 p2 : prop)
-| Or (p1 p2 : prop)
-| Implies (p1 p2 : prop)
-| Iff (p1 p2 : prop).
+| Implies (p1 p2 : prop).
+
+Definition Not (p : prop) : prop := Implies p Bot.
+Definition Top : prop := Implies Bot Bot.
 
 Fixpoint prop_eqb (p q : prop) : bool :=
   match p, q with 
   | Bot, Bot => true
   | Var x1, Var x2 => (Nat.eqb x1 x2)
-  | Not p, Not q => (prop_eqb p q)
   | And p1 p2, And q1 q2 => (prop_eqb p1 q1) && (prop_eqb p2 q2)
-  | Or p1 p2, Or q1 q2 => (prop_eqb p1 q1) && (prop_eqb p2 q2)
   | Implies p1 p2, Implies q1 q2 => (prop_eqb p1 q1) && (prop_eqb p2 q2)
-  | Iff p1 p2, Iff q1 q2 => (prop_eqb p1 q1) && (prop_eqb p2 q2)
   | _, _ => false
   end.
 
@@ -47,26 +44,16 @@ Proof.
     
     reflexivity.
     
-    intros H; simpl in H; apply Nat.eqb_eq in H; f_equal; apply H.
+    intros H. f_equal. simpl in H. apply Nat.eqb_eq in H. apply H.
     
-    intros H; simpl in H; apply IHp in H; f_equal; apply H.
+    intros H. simpl in H. apply andb_true_iff in H.
+    destruct H as [H1 H2]. apply IHp1 in H1. apply IHp2 in H2.
+    f_equal. apply H1. apply H2.
 
-    intros H; simpl in H; apply andb_true_iff in H;
-      destruct H as [H1 H2]; apply IHp1 in H1;
-        apply IHp2 in H2; f_equal; try apply H1; try apply H2.
 
-    intros H; simpl in H; apply andb_true_iff in H;
-      destruct H as [H1 H2]; apply IHp1 in H1;
-        apply IHp2 in H2; f_equal; try apply H1; try apply H2.
-
-    intros H; simpl in H; apply andb_true_iff in H;
-      destruct H as [H1 H2]; apply IHp1 in H1;
-        apply IHp2 in H2; f_equal; try apply H1; try apply H2.
-
-    intros H; simpl in H; apply andb_true_iff in H;
-      destruct H as [H1 H2]; apply IHp1 in H1;
-        apply IHp2 in H2; f_equal; try apply H1; try apply H2.
-
+    intros H. simpl in H. apply andb_true_iff in H.
+    destruct H as [H1 H2]. apply IHp1 in H1. apply IHp2 in H2.
+    f_equal. apply H1. apply H2.
 Qed.
 
 Lemma prop_neqb_neq : forall p q, p <> q <-> prop_eqb p q = false.
@@ -86,11 +73,8 @@ Fixpoint interpret (v : valuation) (p : prop) : bool :=
   match p with
   | Bot => false
   | Var x => v x
-  | Not p => negb (interpret v p)
   | And p1 p2 => andb (interpret v p1) (interpret v p2)
-  | Or p1 p2 => orb (interpret v p1) (interpret v p2)
   | Implies p1 p2 => if interpret v p1 then interpret v p2 else true
-  | Iff p1 p2 => (eqb (interpret v p1) (interpret v p2))
   end.
 
 Definition propset := Ensemble prop.
@@ -358,7 +342,39 @@ Proof.
   - simpl. apply Subtract_preserves_Finite. auto.
 Qed.
 
-
+Lemma assumptions_Included : forall gamma p (d : derivation gamma p),
+    Included (assumptions _ _ d) gamma.
+Proof.
+  intros gamma p d. induction d.
+  - simpl. intros x Hx. inversion Hx. rewrite <- H. apply g.
+  - simpl. intros x Hx. inversion Hx.
+    + apply IHd1 in H. apply Union_introl. apply H.
+    + apply IHd2 in H. apply Union_intror. apply H.
+  - simpl. apply IHd.
+  - simpl. apply IHd.
+  - simpl. intros x Hx. inversion Hx. apply IHd in H.
+    destruct (prop_eqb x p1) as [] eqn:E.
+    + apply prop_eqb_eq in E. rewrite <- E in H.
+      destruct H.  apply H. exfalso. apply H0.
+      rewrite E. apply In_singleton.
+    + inversion H. apply H1. inversion H1.
+      symmetry in H3. apply prop_eqb_eq in H3.
+      rewrite H3 in E. discriminate E.
+  - simpl. intros x Hx. inversion Hx.
+    + apply IHd1 in H. apply Union_introl. apply H.
+    + apply IHd2 in H. apply Union_intror. apply H.
+  - simpl. apply IHd.
+  - simpl. intros x Hx. inversion Hx. apply IHd in H.
+    remember (Implies p Bot) as p1.
+    destruct (prop_eqb x p1) as [] eqn:E.
+    + apply prop_eqb_eq in E. rewrite <- E in H.
+      destruct H.  apply H. exfalso. apply H0.
+      rewrite E. apply In_singleton.
+    + inversion H. apply H1. inversion H1.
+      symmetry in H3. apply prop_eqb_eq in H3.
+      rewrite H3 in E. discriminate E.
+Qed.
+    
 Theorem assumption_derivation (gamma : propset) (p : prop) (d : derivation gamma p)
   : derivation (assumptions _ _ d) p.
 Proof.
@@ -412,6 +428,14 @@ Proof.
   discriminate.
 Qed.
 
+Lemma Empty_set_satisfiable : satisfiable Empty_set.
+Proof.
+  unfold satisfiable. exists (fun _ => true). intros p H. inversion H.
+Qed.
+
+Lemma Empty_set_consistent : consistent Empty_set.
+Proof. apply satisfiable_consistent. apply Empty_set_satisfiable. Qed.       
+
 Lemma Included_consistent : forall gamma gamma',
     consistent gamma -> Included gamma' gamma
     -> consistent gamma'.
@@ -424,23 +448,70 @@ Qed.
 
 
 Lemma consistent_expansion_p : forall gamma p,
-    consistent gamma -> ~ derivable gamma p
+    ~ derivable gamma p
     -> consistent (Add gamma (Implies p Bot)).
 Proof.
-  intros gamma p Hc Hndp.
+  intros gamma p  Hndp.
   intros [dnp]. apply d_raa in dnp.
   apply inhabits in dnp. apply Hndp in dnp.
   contradiction.
 Qed.
 
 Lemma consistent_expansion_np : forall gamma p,
-    consistent gamma -> ~ derivable gamma (Implies p Bot)
+    ~ derivable gamma (Implies p Bot)
     -> consistent (Add gamma p).
 Proof.
-  intros gamma p Hc Hndp.
+  intros gamma p Hndp.
   intros [dnp]. apply d_impliesintro in dnp.
   apply inhabits in dnp. apply Hndp in dnp.
   contradiction.
+Qed.
+
+Lemma derivable_top : forall gamma, derivable gamma Top.
+Proof.
+  intros gamma. apply inhabits. unfold Top. apply d_impliesintro.
+  apply d_assume. apply Union_intror. apply In_singleton.
+Qed.
+
+Lemma contrapositive : forall gamma p q,
+    derivation gamma (Implies (Not q) (Not p))
+    -> derivation gamma (Implies p q).
+Proof.
+  intros gamma p q dnqnp.
+  apply d_impliesintro.
+  apply d_raa.
+  (* unfold Not in dnqnp. *)
+  assert (E1 : Union (Singleton p) (Add gamma (Not q))
+               = Add (Add gamma p) (Not q)).
+  { unfold Add.
+    rewrite (Union_commutative _ (Singleton p)).
+    rewrite (Union_associative _ _ (Singleton p)).
+    rewrite (Union_commutative _ (Singleton p)).
+    rewrite <- (Union_associative _ _ _ (Singleton p)).
+    reflexivity. }
+  unfold Not in E1. rewrite <- E1.
+  apply d_implieselim with (p1:=p).
+  apply d_assume. apply In_singleton.
+  assert (E2: Union (Singleton (Not q)) gamma = Add gamma (Not q)).
+  { unfold Add. rewrite Union_commutative. reflexivity. }
+  unfold Not in E2. rewrite <- E2.
+  apply d_implieselim with (p1:=(Implies q Bot)).
+  apply d_assume. apply In_singleton.
+  apply dnqnp.
+Qed.
+  
+Definition xor (P1 P2 : Prop) : Prop :=
+  (P1 /\ ~P2) \/ (~P1 /\ P2).
+
+Definition complete (gamma : propset) : Prop :=
+  forall p, xor (derivable gamma p) (derivable gamma (Not p)).
+
+Lemma complete_consistent : forall gamma, complete gamma -> consistent gamma.
+Proof.
+  intros gamma Hcomp Hcons. unfold complete in Hcomp.
+  destruct (Hcomp Bot) as [[_ H1]|[H2 _]].
+  - apply H1. apply derivable_top.
+  - apply H2. apply Hcons.
 Qed.
 
 Lemma Finite_derivable : forall gamma,
@@ -484,33 +555,128 @@ Proof.
       apply d_andeliml with (p2:=q). apply d_assume. apply In_singleton.
       apply dxp.
     + intros [dp]. Abort.
-      
-
-    
-    
-  
-(* And, implies, bot, variable fragment *)
-Inductive aibv_fragment : prop -> Prop :=
-| Var_aibv (x : nat) : aibv_fragment (Var x)
-| Bot_aibv : aibv_fragment Bot
-| And_aibv (p1 : prop) (Hp1 : aibv_fragment p1)
-  (p2 : prop) (Hp2 : aibv_fragment p2) : aibv_fragment (And p1 p2)
-| Implies_aibv (p1 : prop) (Hp1 : aibv_fragment p1)
-  (p2 : prop) (Hp2 : aibv_fragment p2) : aibv_fragment (Implies p1 p2).
 
 Section em.
 
   Axiom strong_em : forall (P : Prop), {P} + {~ P}.
 
-  Definition consistent_vars (gamma : propset) (p : prop) : Prop :=
-    match p with
-    | Var x => derivable gamma (Var x)
-    | Implies (Var x) Bot => ~ derivable gamma (Var x)
-    | _ => False
+  Fixpoint gstep (gamma : propset) (n : nat) : propset :=
+    match n with
+    | 0 => gamma
+    | S k => let gk := (gstep gamma k) in
+            match (strong_em (derivable gk (Var k))),
+                  (strong_em (derivable gk (Not (Var k)))) with
+            | left _, _ => gk
+            | _, left _ => gk
+            | _, _ => Add gk (Var k) end
     end.
 
-  Definition star (gamma : propset) : propset := derivable (consistent_vars gamma).
+  (* Lemma not_derivable_var_gstep : forall gamma x, *)
+  (*     ~ derivable gamma (Var x) *)
+  (*     -> gstep gamma (S x) (Not (Var x)). *)
+  (*   (* /\ forall y, y < x -> ~ gstep gamma y (Var x). *) *)
+  (* Proof. *)
+  (*   intros gamma x H. simpl. *)
+  (*   destruct (strong_em (derivable (gstep gamma x) (Var x))). *)
+  (*   - *)
 
+      
+  Lemma gamma_step_consistent : forall gamma,
+      consistent gamma -> forall k, consistent (gstep gamma k).
+  Proof.
+    intros gamma Hc. induction k.
+    - auto.
+    - simpl.
+      destruct (strong_em (derivable (gstep gamma k) (Var k))).
+      apply IHk.
+      destruct (strong_em (derivable (gstep gamma k) (Not (Var k)))).
+      apply IHk.
+      apply consistent_expansion_np. 
+      apply n0.
+  Qed.
+
+  Definition star (gamma : propset) (p : prop) : Prop :=
+    exists n, gstep gamma n p.
+
+  Lemma step_included : forall gamma n m,
+      n <= m -> Included (gstep gamma n) (gstep gamma m).
+  Proof.
+    intros gamma n m Hnm. induction Hnm.
+    - intros x Hx. apply Hx.
+    - intros x Hx. apply IHHnm in Hx.
+      simpl. destruct (strong_em (derivable (gstep gamma m) (Var m))).
+      apply Hx.
+      destruct (strong_em (derivable (gstep gamma m) (Not (Var m)))).
+      apply Hx.
+      apply Union_introl. apply Hx.
+  Qed.
+
+  Lemma gamma_star_Included : forall gamma,
+      Included gamma (star gamma).
+  Proof.
+    intros gamma x Hx. unfold In. unfold star.
+    exists 0. simpl. apply Hx.
+  Qed.
+    
+  Lemma Finite_included_gamma_star_lemma : forall gamma' gamma,
+      consistent gamma
+      -> Finite gamma'
+      -> Included gamma' (star gamma)
+      -> exists n, Included gamma' (gstep gamma n).
+  Proof.
+    intros gamma' gamma Hc Hf. induction Hf.
+    - intros _. exists 0. apply Included_Empty.
+      (* intros m Hm. intros _. symmetry. apply Le.le_n_0_eq. apply Hm. *)
+    - intros H'. unfold Included in H'.
+      assert (H1 : star gamma x).
+      {  apply H'. apply Union_intror. apply In_singleton. }
+      unfold star in H1. destruct H1 as [n Hn].
+      assert (H2 : Included A (star gamma)).
+      { intros y Hy. apply H'. apply Union_introl. apply Hy. }
+      apply IHHf in H2. destruct H2 as [m Hm].
+      (* destruct H2 as [m [Hm1 Hm2]]. *)
+      destruct (Compare_dec.dec_le n m).
+      + exists m. intros y Hy. destruct Hy.
+        * apply Hm. apply H1.
+        * inversion H1. rewrite <- H2.
+          apply step_included with (m:=m) in Hn.
+          apply Hn. apply H0.
+      + apply Nat.nle_gt in H0. apply Nat.lt_le_incl in H0.
+        exists n. intros y Hy. destruct Hy.
+        * apply Hm in H1. assert (H3: Included (gstep gamma m) (gstep gamma n)).
+          { apply step_included. apply H0. }
+          apply H3. apply H1.
+        * inversion H1. rewrite <- H2. apply Hn.
+  Qed.
+
+  Lemma Finite_included_gamma_star_consistent : forall gamma' gamma,
+      consistent gamma
+      -> Finite gamma'
+      -> Included gamma' (star gamma)
+      -> consistent gamma'.
+  Proof.
+    - intros gamma' gamma Hc Hf Hincl.
+      assert (H: exists n, Included gamma' (gstep gamma n)).
+      { apply Finite_included_gamma_star_lemma.
+        apply Hc. apply Hf. apply Hincl. }
+      destruct H as [n Hn].
+      apply Included_consistent with (gamma:=(gstep gamma n)).
+      apply gamma_step_consistent. apply Hc. apply Hn.
+  Qed.
+
+  Lemma gamma_star_consistent : forall gamma,
+      consistent gamma -> consistent (star gamma).
+  Proof.
+    intros gamma Hc [db].
+    set (db':=(assumption_derivation _ _ db)).
+    assert (H : consistent (assumptions (star gamma) Bot db)).
+    { apply Finite_included_gamma_star_consistent
+        with (gamma:=gamma). apply Hc.
+      apply assumptions_finite.
+      apply assumptions_Included. }
+    apply H. apply inhabits. apply db'.
+  Qed.    
+ 
   Lemma complete_lemma_and : forall gamma p q,
       (derivable gamma p \/ derivable gamma (Implies p Bot))
       -> (derivable gamma q \/ derivable gamma (Implies q Bot))
@@ -576,135 +742,159 @@ Section em.
       apply Union_intror. apply In_singleton.
       apply weaken with (gamma:=gamma). apply dnp.
       apply Included_add.
-  Qed.      
-        
-  Lemma gamma_star_complete : forall p gamma,
-      aibv_fragment p -> star gamma p \/ star gamma (Implies p Bot).
-  Proof.
-    intros p gamma. induction p.
-    - intros Hp. right. unfold star. apply inhabits.
-      apply d_impliesintro. apply d_assume.
-      apply Union_intror. apply In_singleton.
-    - intros Hp.
-      destruct (strong_em (derivable gamma (Var x))) as [Hd | Hnd].
-      + left. apply inhabits. apply d_assume. apply Hd.
-      + right. apply inhabits. apply d_assume. apply Hnd.
-    - intros Hp. inversion Hp.
-    - intros Hp. inversion Hp.
-      apply IHp1 in Hp1. apply IHp2 in Hp2.
-      apply complete_lemma_and. apply Hp1. apply Hp2.
-    - intros Hp. inversion Hp.
-    - intros Hp. inversion Hp.
-      apply IHp1 in Hp1. apply IHp2 in Hp2.
-      apply complete_lemma_implies. apply Hp1. apply Hp2.
-    - intros Hp. inversion Hp.
   Qed.
 
-  Lemma gamma_star_minus_gamma : forall gamma p,
-      Setminus (star gamma) (derivable gamma) p ->
-      ~ derivable gamma p /\ ~ derivable gamma (Implies p Bot).
+  Lemma gamma_star_complete : forall gamma p,
+      derivable (star gamma) p \/ derivable (star gamma) (Not p).
   Proof.
-    intros gamma p Hp. unfold Setminus in Hp.
-    (* unfold star in Hp. *)
-    unfold In in Hp. destruct Hp as [gsp ngp]. split.
-    - intros ndp. apply ngp in ndp. contradiction.
-    - intros ndnp. Abort.
-
-  Lemma Setminus_intro : forall U (A B : Ensemble U),
-      Included B A -> A = Union B (Setminus A B).
-  Proof.
-    intros U A B Hincl. apply Extensionality_Ensembles. split.
-    - intros x Hx. destruct (strong_em (B x)).
-      + apply Union_introl. apply b.
-      + apply Union_intror. split. apply Hx. apply n.
-    - intros x Hx. inversion Hx. apply Hincl in H. apply H.
-      apply H.
+    intros gamma p. induction p.
+    - right. apply derivable_top.
+    - destruct (strong_em (derivable (gstep gamma x) (Var x)));
+      destruct (strong_em (derivable (gstep gamma x) (Not (Var x)))).
+      + destruct d as [d]. left. apply inhabits.
+        apply weaken with (gamma:=(gstep gamma x)). apply d.
+        intros y Hy. unfold In. unfold star. exists x. apply Hy.
+      + destruct d as [d]. left. apply inhabits.
+        apply weaken with (gamma:=(gstep gamma x)). apply d.
+        intros y Hy. unfold In. unfold star. exists x. apply Hy.
+      + destruct d as [d]. right. apply inhabits.
+        apply weaken with (gamma:=(gstep gamma x)). apply d.
+        intros y Hy. unfold In. unfold star. exists x. apply Hy.
+      + left. apply inhabits. apply d_assume.
+        unfold star. exists (S x). simpl.
+        destruct (strong_em (derivable (gstep gamma x) (Var x))).
+        contradiction.
+        destruct (strong_em (derivable (gstep gamma x) (Not (Var x)))).
+        contradiction.
+        apply Union_intror. apply In_singleton. 
+    - apply complete_lemma_and. apply IHp1. apply IHp2.
+    - apply complete_lemma_implies. apply IHp1. apply IHp2.
   Qed.
-
-  Definition derivable_vars (gamma : propset) (p : prop) : Prop :=
-    match p with
-    | Var x => derivable gamma p
-    | Implies (Var x) Bot => derivable gamma (Implies (Var x) Bot)
-    | _ => False
-    end.
-
-  (* if gamma were not consistent, then every for every n,
-     x_n and ~ x_n and would be in derivable vars;
-     consistent has has exactly one of x_n or ~ x_n *)
-  Lemma derivable_vars_included : forall gamma,
-      consistent gamma -> 
-      Included (derivable_vars gamma) (consistent_vars gamma).
-  Proof.
-    intros gamma Hc x Hx. unfold In. unfold In in Hx.
-    (* unfold consistent_vars. unfold derivable_vars in Hx. *)
-    destruct x.
-    - contradiction.
-    - apply Hx.
-    - contradiction.
-    - contradiction.
-    - contradiction.
-    - destruct x1; destruct x2; try contradiction.
-      simpl. simpl in Hx. intros [dx]. destruct Hx as [dnx].
-      assert (db : derivation gamma Bot).
-      { rewrite (Union_idempotent _ gamma).
-        apply d_implieselim with (p1:=(Var x)).
-        apply dx. apply dnx. }
-      apply inhabits in db. apply Hc in db. contradiction.
-    - contradiction.
-  Qed.
-
-  Lemma derivable_vars_derivable : forall gamma,
-      consistent gamma -> (forall p, gamma p -> aibv_fragment p) ->
-      derivable gamma = derivable (derivable_vars gamma).
-  Proof.
-    intros gamma Hc Haibv. apply Extensionality_Ensembles. split.
-    - intros p. induction p.
-      + intros [db]. apply inhabits in db. apply Hc in db. contradiction.
-      + intros [dx]. apply inhabits. apply d_assume. simpl.
-        apply inhabits. apply dx.
-      + intros Hp.
-
-    
-    - intros Hb. 
-      assert (db : derivation gamma Bot).
-      { apply d_assume. apply Hb. }
-      apply inhabits in db. apply Hc in db. contradiction.
-    - intros Hx. apply inhabits. apply d_assume.
-      simpl. apply inhabits. apply d_assume. apply Hx.
-    - intros Hp. apply Haibv in Hp. inversion Hp.
-    - intros Hp. Abort.
-    
-  Lemma Included_gamma_star : forall gamma,
-      Included gamma (star gamma).
-  Proof.
-    intros gamma x Hx. unfold star. 
-n    
-  Lemma gamma_star_consistent : forall gamma,
-      consistent gamma -> consistent (star gamma).
-  Proof.
-    intros gamma Hc. intros H.
-    unfold consistent in Hc.
-    
-      
 
   Definition star_valuation (gamma : propset) (x : nat) : bool :=
-    if (strong_em (star gamma (Var x)))
+    if strong_em (derivable (star gamma) (Var x))
     then true
     else false.
 
   Lemma star_valuation_satisfies : forall gamma p,
       consistent gamma ->
-      star gamma p <-> interpret (star_valuation gamma) p = true.
+      derivable (star gamma) p <-> interpret (star_valuation gamma) p = true.
   Proof.
-    intros gamma p Hc. induction p.
+    intros gamma p Hc.
+    assert (Hsc: consistent (star gamma)).
+    { apply gamma_star_consistent. apply Hc. }
+    induction p.
     - split.
-      + intros H. unfold star in H.
-        unfold consistent in Hc.
-      
+      + intros H. exfalso. apply Hsc. apply H.
+      + simpl. intros. discriminate.
+    - split.
+      + intros H. simpl. unfold star_valuation.
+        destruct (strong_em (derivable (star gamma) (Var x))).
+        reflexivity. contradiction.
+      + simpl. intros H. unfold star_valuation in H.
+        destruct (strong_em (derivable (star gamma) (Var x))).
+        apply d. discriminate.
+    - split.
+      + intros [dp1p2]. simpl. apply andb_true_iff.
+        split.
+        apply IHp1. apply inhabits. apply d_andeliml with (p2:=p2). apply dp1p2.
+        apply IHp2. apply inhabits. apply d_andelimr with (p1:=p1). apply dp1p2.
+      + simpl. intros Hip1p2. apply andb_true_iff in Hip1p2.
+        destruct Hip1p2 as [Hp1 Hp2].
+        apply IHp1 in Hp1. destruct Hp1 as [dp1].
+        apply IHp2 in Hp2. destruct Hp2 as [dp2].
+        rewrite (Union_idempotent _ (star gamma)).
+        apply inhabits. apply d_andintro.
+        apply dp1. apply dp2.
+    - split.
+      + intros [dp1p2]. simpl.
+        destruct (interpret (star_valuation gamma) p1);
+          destruct (interpret (star_valuation gamma) p2).
+        * reflexivity.
+        * assert (dp1 : derivable (star gamma) p1).
+          { apply IHp1. reflexivity. }
+          destruct dp1 as [dp1]. apply IHp2.
+          rewrite (Union_idempotent _ (star gamma)).
+          apply inhabits. apply d_implieselim with (p1:=p1).
+          apply dp1. apply dp1p2.
+        * reflexivity.
+        * reflexivity.
+      + simpl. intros Hdp1p2.
+        destruct (interpret (star_valuation gamma) p1);
+          destruct (interpret (star_valuation gamma) p2).
+        * assert (dp2 : derivable (star gamma) p2).
+          { apply IHp2. reflexivity. }
+          destruct dp2 as [dp2]. apply inhabits.
+          apply d_impliesintro. apply weaken with (gamma:=(star gamma)).
+          apply dp2. apply Included_add.
+        * discriminate.
+        * assert (dp2 : derivable (star gamma) p2).
+          { apply IHp2. reflexivity. }
+          destruct dp2 as [dp2]. apply inhabits.
+          apply d_impliesintro. apply weaken with (gamma:=(star gamma)).
+          apply dp2. apply Included_add.
+        * assert (ndp1 : ~ derivable (star gamma) p1).
+          { intros dp1. apply IHp1 in dp1. discriminate. }
+          assert (dnp1 : derivable (star gamma) (Not p1)).
+          { destruct (gamma_star_complete gamma p1).
+            contradiction. apply H. }
+          destruct dnp1 as [dnp1].
+          assert (dnp2np1 : derivation (star gamma) (Implies (Not p2) (Not p1))).
+          { apply d_impliesintro.
+            apply weaken with (gamma:=(star gamma)). apply dnp1.
+            apply Included_add. }
+          apply contrapositive in dnp2np1.
+          apply inhabits. apply dnp2np1.
+  Qed.
+          
       
   Theorem consistent_satisfiable : forall gamma,
       consistent gamma -> satisfiable gamma.
-  Proof.  Abort.        
-          
+  Proof.
+    intros gamma Hc. unfold satisfiable.
+    exists (star_valuation gamma). intros p Hp. unfold holds.
+    apply star_valuation_satisfies. apply Hc.
+    apply inhabits. apply d_assume. apply (gamma_star_Included gamma).
+    apply Hp.
+  Qed.
+
+  Theorem not_derivable_not_entails : forall gamma p,
+      ~ derivable gamma p -> ~ entails gamma p.
+  Proof.
+    intros gamma p Hnd. apply consistent_expansion_p in Hnd.
+    apply consistent_satisfiable in Hnd.
+    destruct Hnd as [v Hv].
+    unfold satisfies in Hv. unfold holds in Hv.
+    assert (Hnp: interpret v (Not p) = true).
+    { apply Hv. apply Union_intror. apply In_singleton. }
+    simpl in Hnp.
+    assert (Hp : interpret v p = false).
+    { destruct (interpret v p).
+      discriminate. reflexivity. }
+    assert (Hs : satisfies v gamma).
+    { intros q Hq. apply Hv. apply Union_introl. apply Hq. }
+    intros He. unfold entails in He.
+    apply He in Hs. unfold holds in Hs.
+    rewrite Hs in Hp. discriminate.
+  Qed.
+      
+  Lemma cp : forall (p q : Prop), (~ q -> ~ p) -> p -> q.
+  Proof.
+    intros p q H Hp.
+    destruct (strong_em p); destruct (strong_em q).
+    - auto.
+    - apply H in n. apply n in Hp. contradiction.
+    - auto.
+    - apply H in n0. apply n in Hp. contradiction.
+  Qed.
+
+  Theorem completeness : forall gamma p,
+      entails gamma p <-> derivable gamma p.
+  Proof.
+    intros gamma p. split.
+    - apply cp. apply not_derivable_not_entails.
+    - intros [d]. apply soundness. apply d.
+  Qed.
+      
 End em.
 
