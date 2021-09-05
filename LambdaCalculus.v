@@ -117,6 +117,66 @@ Fixpoint boundvars (M : lterm) : varset :=
   | App P Q => union (boundvars P) (boundvars Q)
   end.
 
+Fixpoint subst_opt (M: lterm) (x : var) (N : lterm) : option lterm :=
+  match M with
+  | Var v => if v =? x
+             then Some N
+             else Some (Var x)
+  | Abs v P => let fvsN := freevars N in
+               let fvsP := freevars P in
+               match inb v fvsN, inb x fvsP with
+               | true, true => None
+               | true, false
+               | false, true => match subst_opt P x N with
+                                | Some P' => Some (Abs v P')
+                                | None => None
+                                end
+               | false, false => Some (Abs v P)
+               end
+  | App P Q => match subst_opt P x N, subst_opt Q x N with
+               | Some P', Some Q' => Some (App P' Q')
+               | _, _ => None
+               end
+  end.
+
+Lemma subst_opt_bv :
+  forall x M N, intersect (freevars N) (boundvars M) = empty
+                -> (exists P, subst_opt M x N = Some P).
+Proof.
+  intros x M N. induction M as [|v P IHP|P IHP Q IHQ].
+  - intros H. destruct (v =? x) as [] eqn:E.
+    + simpl. rewrite E. exists N. auto.
+    + simpl. rewrite E. exists (Var x). auto.
+  - intros H.
+    assert (H1: intersect (freevars N) (boundvars P) = empty).
+    { apply (empty_intersect_retract _ (boundvars (Abs v P))).
+      apply H. simpl. unfold incl. intros a HainbvP. simpl.
+      right. apply HainbvP. }
+    apply IHP in H1. destruct H1 as [P0 HP0]. simpl.
+    destruct (inb v (freevars N)) as [] eqn:E1.
+    + exfalso. apply in_inb in E1.
+      assert (H1 : In v (boundvars (Abs v P))).
+      { simpl. left. auto. }
+      assert (H2 : In v (intersect (freevars N) (boundvars (Abs v P)))).
+      { apply intersect_in. split. apply E1. apply H1. }
+      rewrite H in H2. simpl in H2. apply H2.
+    + destruct (inb x (freevars P)) as [] eqn:E.
+      * rewrite HP0. exists (Abs v P0). auto.
+      * exists (Abs v P). auto.
+  - intros H.
+    assert (H1 : intersect (freevars N) (boundvars P) = empty).
+    { apply (empty_intersect_retract _ (boundvars (App P Q))).
+      apply H. simpl. unfold incl. intros a HainbvP.
+      apply union_in. left. apply HainbvP. }
+    assert (H2 : intersect (freevars N) (boundvars Q) = empty).
+    { apply (empty_intersect_retract _ (boundvars (App P Q))).
+      apply H. simpl. unfold incl. intros a HainbvQ.
+      apply union_in. right. apply HainbvQ. }
+    apply IHP in H1. apply IHQ in H2.
+    destruct H1 as [P' HP']. destruct H2 as [Q' HQ'].
+    simpl. rewrite HP'. rewrite HQ'. exists (App P' Q'). auto.
+Qed.
+
 Definition freshvar (X : varset) : var := 1 + list_max X.
 
 Lemma freshvar_notin : forall X, ~ (In (freshvar X) X).
@@ -196,86 +256,89 @@ Proof.
 Qed. 
 
 
-Fixpoint subst_t (t : nat) (M: lterm) (x : var) (N : lterm) : lterm :=
+Fixpoint subst_t (t : nat) (M: lterm) (x : var) (N : lterm) : option lterm :=
   match t with
-  | 0 => M
+  | 0 => None
   | S t' =>
-  match M with
-  | Var v   => if v =? x
-               then N
-               else Var v
-  | App P Q => App (subst_t t' P x N) (subst_t t' Q x N)
-  | Abs v P => let fvsN := freevars N in
-               let fvsP := freevars P in                         
-               match inb v fvsN, inb x fvsP with
-               | true, true   => let fresh := freshvar (union fvsN fvsP) in
-                                 (Abs fresh (subst_t t' (rename P v fresh) fresh N))
-               | true, false
-               | false, true  => Abs v (subst_t t' P x N)
-               | false, false => Abs v P
-               end
-  end
+    match M with
+    | Var v   => if v =? x
+                 then Some N
+                 else Some (Var v)
+    | App P Q => match (subst_t t' P x N), (subst_t t' Q x N) with
+                 | Some P', Some Q' => Some (App P' Q')
+                 | _, _ => None
+                 end
+    | Abs v P => let fvsN := freevars N in
+                 let fvsP := freevars P in                         
+                 match inb v fvsN, inb x fvsP with
+                 | true, true => let fresh := freshvar (union fvsN fvsP) in
+                                 match (subst_t t' (rename P v fresh) fresh N) with
+                                 | Some P' => Some (Abs fresh P')
+                                 | None => None
+                                 end
+                 | true, false
+                 | false, true => match (subst_t t' P x N) with
+                                  | Some P' => Some (Abs v P')
+                                  | None => None
+                                  end
+                 | false, false => Some (Abs v P)
+                 end
+    end
   end.
 
-Definition subst (M : lterm) (x : var) (N : lterm) : lterm :=
-  subst_t (depth M) M x N.
 
-Fixpoint subst_opt (M: lterm) (x : var) (N : lterm) : option lterm :=
-  match M with
-  | Var v => if v =? x
-             then Some N
-             else Some (Var x)
-  | Abs v P => let fvsN := freevars N in
-               let fvsP := freevars P in
-               match inb v fvsN, inb x fvsP with
-               | true, true => None
-               | true, false
-               | false, true => match subst_opt P x N with
-                                | Some P' => Some (Abs v P')
-                                | None => None
-                                end
-               | false, false => Some (Abs v P)
-               end
-  | App P Q => match subst_opt P x N, subst_opt Q x N with
-               | Some P', Some Q' => Some (App P' Q')
-               | _, _ => None
-               end
-  end.
-
-Lemma subst_opt_bv :
-  forall x M N, intersect (freevars N) (boundvars M) = empty
-                -> (exists P, subst_opt M x N = Some P).
+Lemma subst_t_S : forall t M x N M',
+    subst_t t M x N = Some M' -> (forall v P Q, subst_t).
 Proof.
-  intros x M N. induction M as [|v P IHP|P IHP Q IHQ].
-  - intros H. destruct (v =? x) as [] eqn:E.
-    + simpl. rewrite E. exists N. auto.
-    + simpl. rewrite E. exists (Var x). auto.
-  - intros H.
-    assert (H1: intersect (freevars N) (boundvars P) = empty).
-    { apply (empty_intersect_retract _ (boundvars (Abs v P))).
-      apply H. simpl. unfold incl. intros a HainbvP. simpl.
-      right. apply HainbvP. }
-    apply IHP in H1. destruct H1 as [P0 HP0]. simpl.
-    destruct (inb v (freevars N)) as [] eqn:E1.
-    + exfalso. apply in_inb in E1.
-      assert (H1 : In v (boundvars (Abs v P))).
-      { simpl. left. auto. }
-      assert (H2 : In v (intersect (freevars N) (boundvars (Abs v P)))).
-      { apply intersect_in. split. apply E1. apply H1. }
-      rewrite H in H2. simpl in H2. apply H2.
-    + destruct (inb x (freevars P)) as [] eqn:E.
-      * rewrite HP0. exists (Abs v P0). auto.
-      *  exists (Abs v P). auto.
-  - intros H.
-    assert (H1 : intersect (freevars N) (boundvars P) = empty).
-    { apply (empty_intersect_retract _ (boundvars (App P Q))).
-      apply H. simpl. unfold incl. intros a HainbvP.
-      apply union_in. left. apply HainbvP. }
-    assert (H2 : intersect (freevars N) (boundvars Q) = empty).
-    { apply (empty_intersect_retract _ (boundvars (App P Q))).
-      apply H. simpl. unfold incl. intros a HainbvQ.
-      apply union_in. right. apply HainbvQ. }
-    apply IHP in H1. apply IHQ in H2.
-    destruct H1 as [P' HP']. destruct H2 as [Q' HQ'].
-    simpl. rewrite HP'. rewrite HQ'. exists (App P' Q'). auto.
-Qed.
+  induction t as [|k IH].
+  intros M x N HexistsM'. intros P y Q H. simpl in H.
+  inversion H.
+
+Lemma subst_t_depth_eq : forall t P Q x N,
+    depth P = depth Q -> (exists P', subst_t t P x N = Some P')
+    -> (exists Q', subst_t t Q x N = Some Q').
+Proof.
+  induction t as [|k IH].
+  - intros P Q x N Hdepth Hexists. destruct Hexists as [P' HP'].
+    simpl in HP'. discriminate.
+  - intros P Q x N Hdepth Hexists. apply IH with (x:=x) (N:=N) in Hdepth.
+    destruct Hdepth as [Q' HQ'].
+    simpl. destruct Q as [|v qP|qP qQ] eqn:E. 
+    + simpl. destruct (v =? x).
+      * exists N. auto.
+      * exists (Var v). auto.
+    + destruct (inb v (freevars N)) as [] eqn:EvinfvsN.
+      * destruct (inb x (freevars qP)) as [] eqn:ExinfvsqP.
+        -- remember (freshvar (union (freevars N) (freevars qP))) as fshuNP.
+           assert (Hdepth : depth qP = depth (rename qP v fshuNP)).
+           { apply rename_depth. }
+           
+           
+    
+Lemma subst_t_rename : forall t M x N y z,
+    (exists M', subst_t t M x N = Some M')
+    -> (exists M'', subst_t t (rename M y z) x N = Some M'').
+Proof.
+  induction t as [| k IH].
+  - intros M x N y z Hexists. destruct Hexists as [M' IHM'].
+    simpl in IHM'. discriminate.
+  - intros M x N y z Hexists. simpl.
+
+Lemma subst_t_depth :
+  forall M x N, exists M', subst_t (depth M) M x N = Some M'.
+Proof.
+  induction M as [| v P IHP| P IHP Q IHQ].
+  - intros x N. simpl. destruct (v =? x).
+    + exists N. auto.
+    + exists (Var v). auto.
+  - intros x N. simpl. destruct (inb v (freevars N)) as [] eqn:EvinfvsN.
+    + destruct (inb x (freevars P)) as [] eqn:ExinfvsP.
+      * remember (freshvar (union (freevars N) (freevars P))) as fshuNP.
+
+        assert (HrnPdepth : depth P = depth (rename P v fshuNP)).
+        { apply rename_depth. }
+        assert (Hexists : exists M',
+                   subst_t (depth P) P x N
+                   = Some M').
+        { apply IHP with (N:=N). }
+        
