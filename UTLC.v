@@ -1,4 +1,4 @@
-From mathcomp Require Import all_ssreflect.
+From mathcomp Require Import all_ssreflect finmap.
 
 Definition var := nat.
 
@@ -47,25 +47,34 @@ Qed.
 Definition lterm_eqMixin := Equality.Mixin eq_ltermP.
 Canonical lterm_eqType := @Equality.Pack lterm lterm_eqMixin.
                                 
-Definition varset := seq var. 
-Definition singleton (x : var) := [:: x].
-Definition remove (x : var) (S : varset) : varset :=
-  filter (fun y => x != y) S.
+Definition varset := {fset var}. 
+(* Definition singleton (x : var) := [:: x]. *)
+(* Definition remove (x : var) (S : varset) : varset := *)
+  (* filter (fun y => x != y) S. *)
 
-Lemma in_remove : forall x S, x \notin (remove x S).
-Proof.
-  move=> x S.
-  rewrite /remove. apply/negP. 
-  rewrite mem_filter.
-  move/andP => [Heq _].
-  by move/eqP: Heq => Heq.
-Qed.
+(* Lemma in_remove : forall x S, x \notin (remove x S). *)
+(* Proof. *)
+(*   move=> x S. *)
+(*   rewrite /remove. apply/negP.  *)
+(*   rewrite mem_filter. *)
+(*   move/andP => [Heq _]. *)
+(*   by move/eqP: Heq => Heq. *)
+(* Qed. *)
+
+Open Scope fset_scope.
 
 Fixpoint freevars (M : lterm) : varset :=
   match M with
-  | Var x => [:: x]
-  | App M N => (freevars M) ++ (freevars N)
-  | Abs x M => (remove x (freevars M))
+  | Var x => [fset x]
+  | App P Q => (freevars P `|` freevars Q)
+  | Abs x P => (freevars P `\ x)
+  end.
+
+Fixpoint boundvars (M : lterm) : varset :=
+  match M with
+  | Var x => fset0
+  | App P Q => (boundvars P `|` boundvars Q)
+  | Abs x P => x |` boundvars P
   end.
 
 Fixpoint subst (x : var) (N M : lterm) :=
@@ -83,18 +92,124 @@ Lemma subst_notin_fv (x : var) N M :
   x \notin freevars M -> M = subst x N M.
 Proof.
   elim: M => [y|P IHP Q IHQ|y P IHP].
-  - rewrite /in_mem /mem /= Bool.orb_false_r.
-    move/negbTE=> H. by rewrite H.
-  - rewrite /= mem_cat negb_or.
+  - rewrite inE /=. move/negbTE=> H. by rewrite H.
+  - rewrite inE -/freevars negb_or.    
     move/andP=> [HnP HnQ].
       by rewrite {1}(IHP HnP) {1}(IHQ HnQ).
-  - rewrite /=. case E: (x == y).
-    + by [].
-    + rewrite /remove mem_filter negb_and -implybE.
+  - rewrite inE -/freevars. case E: (x == y).
+    + by rewrite /= E.
+    + rewrite /= E.
+      rewrite negb_and -implybE.
+      rewrite inE. move/negbT: E => E.
       move/implyP=> H.
-      move/negbT: E. rewrite eq_sym. move=> E.
         by rewrite {1}(IHP (H E)).
 Qed.
+
+Lemma freevars_subset_app : forall M N, freevars M `<=` freevars (App M N).
+Proof.
+  move=> M N. rewrite /=. by apply: fsubsetUl.
+Qed.
+
+Definition variable_convention (M : lterm) :=
+  [disjoint (freevars M) & (boundvars M)].
+
+Lemma freevars_subst : forall x N M,
+    freevars (subst x N M) `<=` freevars M `\ x `|` freevars N.
+Proof.
+  move=> x N. elim.
+  - move=> y /=.
+    apply/fsubsetP. rewrite /sub_mem. 
+    move=> z Hz. apply/fsetUP. move: Hz. case E: (x==y).
+    + by right.
+    + rewrite /= {1}inE. move=> Hz. left. rewrite in_fsetD1.
+      apply/andP. split.
+      * rewrite eq_sym. move/eqP: Hz => Hz.
+        rewrite Hz. by apply: negbT.
+      * by rewrite inE.
+  - move=> P /fsubsetP IHP Q /fsubsetP IHQ /=.    
+    apply/fsubsetP.
+    move: IHP IHQ. rewrite /sub_mem. move=> IHP IHQ.
+    move=> /= z. move/fsetUP=> H.
+    apply/fsetUP.
+    have: z \in (freevars P `\x `|` freevars N)
+                \/ z \in (freevars Q `\x `|` freevars N).
+    case: H. by left; apply IHP. by right; apply IHQ.
+    move=> [/fsetUP [/fsetD1P H11|H12]| /fsetUP [/fsetD1P H21|H22]].
+    + left. apply/fsetD1P. split. by tauto. by apply/fsetUP; tauto.
+    + by tauto.
+    + left. apply/fsetD1P. split. by tauto. by apply/fsetUP; tauto.
+    + by tauto.
+  - move=> y P /fsubsetP IHP. apply/fsubsetP.
+    move: IHP. rewrite /sub_mem. move=> IHP.
+    move=> z /=. case E: (x == y).
+    + move/eqP: E => E /=. rewrite E.
+      move/fsetD1P=> [Hzy HzP].      
+      apply/fsetUP. left.
+      apply/fsetD1P. split. by []. 
+      apply/fsetD1P. by [].
+    + rewrite /=.
+      move/fsetD1P=> [Hzy HzP].
+      move/IHP/fsetUP: HzP => [HzP1|HzP2].
+      * apply/fsetUP. left.
+        apply/fsetD1P.
+        move/fsetD1P: HzP1 => [HzP11 HzP12].
+        split. by []. apply/fsetD1P. by [].
+      * by apply/fsetUP; tauto.
+Qed.
+
+Lemma boundvars_subst : 
+
+Check variable_convention.
+
+Lemma disjointABCD_BD {K : choiceType} : forall (A B C D : {fset K}),
+    [disjoint A `|` B & C `|` D] -> [disjoint B & D].
+Proof.
+  move=> A B C D. 
+  rewrite fdisjointUX.
+  move/andP => [_ H]. move: H.
+  rewrite fdisjointXU.
+    by move/andP => [_ H].
+Qed.  
+
+Lemma variable_convention_appl : forall P Q,
+    variable_convention (App P Q) -> variable_convention Q.
+Proof.
+  move=> P Q. rewrite /variable_convention /=.
+    by apply disjointABCD_BD.
+Qed.
+
+(* Lemma variable_convention_applr : forall P Q, *)
+    (* variable_convention P -> variable_convention Q -> *)
+    (* variable_convention (App P Q). *)
+(* Proof. *)
+  (* move=> P Q. rewrite /variable_convention /=. HP HQ.  *)
+
+Lemma variable_convention_stable : forall x N M,
+    variable_convention (App (Abs x M) N) -> variable_convention (subst x N M).
+Proof.
+  move=> x N. case.
+  - rewrite /=. move=> y H.
+    have: variable_convention N. by apply: (variable_convention_appl (Abs x (Var y))).
+    case E: (x == y).
+    + by [].
+    + move=> _. rewrite /variable_convention /freevars /boundvars.
+        by apply: fdisjointX0.
+  - rewrite /variable_convention /=.
+    move=> P Q /fdisjointP H /=. apply/fdisjointP. move=> z.
+    move/fsetUP=> HzP.
+    suffices {HzP}: z \in (freevars P `|` freevars Q) `\ x `|` freevars N.
+    move/H=> H'.
+    
+    
+    + rewrite in_fsetU negb_or. apply/andP. split.
+      have: z \in freevars P `\ x `|` freevars N.
+      { move/fsubsetP: (freevars_subst x N P).
+      rewrite /sub_mem. move=> Hss. by apply Hss. }
+      move=> HzP'.
+        
+      
+      move: HzP. move/freevars_subst.
+
 
 Section beta.
   Inductive beta1 : lterm -> lterm -> Prop :=
